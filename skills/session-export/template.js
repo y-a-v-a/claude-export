@@ -302,8 +302,10 @@ body * { font-size: inherit; font-family: inherit; }
   margin: 0.5em 0;
 }
 .bubble hr { border: none; border-top: 1px solid var(--border); margin: 0.75em 0; }
-.bubble table { border-collapse: collapse; margin: 0.5em 0; }
-.bubble th, .bubble td { border: 1px solid var(--border); padding: 0.25em 0.5em; }
+.bubble table { border-collapse: collapse; margin: 0.5em 0; display: block; overflow-x: auto; max-width: 100%; }
+.bubble th, .bubble td { border: 1px solid var(--border); padding: 0.25em 0.5em; text-align: left; vertical-align: top; }
+.bubble th { background: var(--panel2); font-weight: 600; }
+.bubble tbody tr:nth-child(even) { background: color-mix(in srgb, var(--panel2) 40%, transparent); }
 
 /* Thinking */
 .thinking {
@@ -798,6 +800,63 @@ function md(src) {
       ? '<a href="' + url + '" target="_blank" rel="noopener">' + text + '</a>'
       : m;
   });
+  // GFM tables: a header row containing pipes, followed by a delimiter row of
+  // only |, :, - (with at least one -). Runs after inline formatting so cells
+  // keep bold/code/links. Emits a block-level <table> flanked by blank lines so
+  // the paragraph splitter below leaves it untouched.
+  s = (function (str) {
+    const lines = str.split("\\n");
+    const out = [];
+    const splitRow = (line) => {
+      let t = line.trim();
+      if (t.charAt(0) === "|") t = t.slice(1);
+      if (t.charAt(t.length - 1) === "|") t = t.slice(0, -1);
+      return t.split("|").map((c) => c.trim());
+    };
+    const isSep = (line) => {
+      if (line == null) return false;
+      const t = line.replace(/\\s/g, "");
+      return t.indexOf("-") !== -1 && /^[|:-]+$/.test(t);
+    };
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line && line.indexOf("|") !== -1 && isSep(lines[i + 1])) {
+        const header = splitRow(line);
+        const aligns = splitRow(lines[i + 1]).map((c) => {
+          const l = c.charAt(0) === ":";
+          const r = c.charAt(c.length - 1) === ":";
+          return l && r ? "center" : r ? "right" : l ? "left" : "";
+        });
+        const rows = [];
+        i += 2;
+        while (i < lines.length && lines[i] && lines[i].indexOf("|") !== -1 && !isSep(lines[i])) {
+          rows.push(splitRow(lines[i]));
+          i++;
+        }
+        const cell = (tag, content, idx) => {
+          const a = aligns[idx] ? ' style="text-align:' + aligns[idx] + '"' : "";
+          return "<" + tag + a + ">" + (content != null ? content : "") + "</" + tag + ">";
+        };
+        let html = "<table><thead><tr>";
+        header.forEach((h, idx) => { html += cell("th", h, idx); });
+        html += "</tr></thead><tbody>";
+        rows.forEach((r) => {
+          html += "<tr>";
+          for (let c = 0; c < header.length; c++) html += cell("td", r[c], c);
+          html += "</tr>";
+        });
+        html += "</tbody></table>";
+        if (out.length && out[out.length - 1] !== "") out.push("");
+        out.push(html);
+        out.push("");
+      } else {
+        out.push(line);
+        i++;
+      }
+    }
+    return out.join("\\n");
+  })(s);
   // Paragraphs: split on blank lines, wrap non-block lines
   s = s.split(/\\n{2,}/).map(chunk => {
     if (/^\\s*<(h\\d|ul|ol|hr|blockquote|pre|table)/.test(chunk)) return chunk;
